@@ -86,12 +86,6 @@
 
     const thresholdSlider = document.getElementById('threshold');
     const thresholdValueLabel = document.getElementById('thresholdValue');
-    let THRESHOLD = parseInt(thresholdSlider.value);
-
-    thresholdSlider.addEventListener('input', () => {
-      THRESHOLD = parseInt(thresholdSlider.value);
-      thresholdValueLabel.textContent = THRESHOLD;
-    });
 
     // Canvas de capture 1080x1920 portrait
     const captureCanvas = document.createElement('canvas');
@@ -116,15 +110,18 @@
       });
 
     function drawFrame() {
+      const threshold = parseInt(thresholdSlider.value);
+      thresholdValueLabel.textContent = threshold;
+
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-      // Effet seuil NB
+      // Effet seuil NB appliqué avec valeur actuelle du slider
       let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       let data = imageData.data;
       for (let i = 0; i < data.length; i += 4) {
         const r = data[i], g = data[i+1], b = data[i+2];
         const avg = (r + g + b) / 3;
-        const val = avg > THRESHOLD ? 255 : 0;
+        const val = avg > threshold ? 255 : 0;
         data[i] = data[i+1] = data[i+2] = val;
       }
       ctx.putImageData(imageData, 0, 0);
@@ -139,8 +136,27 @@
 
     const result = document.getElementById('result');
     document.getElementById('capture').addEventListener('click', () => {
-      // Dessiner la capture finale 1080x1920
-      captureCtx.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
+      const threshold = parseInt(thresholdSlider.value);
+
+      // Calcul crop pour 1080x1920 portrait
+      const videoRatio = video.videoWidth / video.videoHeight;
+      const targetRatio = 1080 / 1920;
+      let sx, sy, sw, sh;
+
+      if(videoRatio > targetRatio){
+        sh = video.videoHeight;
+        sw = sh * targetRatio;
+        sx = (video.videoWidth - sw) / 2;
+        sy = 0;
+      } else {
+        sw = video.videoWidth;
+        sh = sw / targetRatio;
+        sx = 0;
+        sy = (video.videoHeight - sh) / 2;
+      }
+
+      // Dessiner la vidéo cropée dans captureCanvas
+      captureCtx.drawImage(video, sx, sy, sw, sh, 0, 0, captureCanvas.width, captureCanvas.height);
 
       // Seuil NB
       let imageData = captureCtx.getImageData(0, 0, captureCanvas.width, captureCanvas.height);
@@ -148,7 +164,7 @@
       for (let i = 0; i < data.length; i += 4) {
         const r = data[i], g = data[i+1], b = data[i+2];
         const avg = (r + g + b) / 3;
-        const val = avg > THRESHOLD ? 255 : 0;
+        const val = avg > threshold ? 255 : 0;
         data[i] = data[i+1] = data[i+2] = val;
       }
       captureCtx.putImageData(imageData, 0, 0);
