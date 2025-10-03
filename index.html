@@ -53,14 +53,15 @@
       cursor: pointer;
     }
     #result {
-      position: absolute;
-      top: 10px;
-      left: 50%;
-      transform: translateX(-50%);
-      max-width: 90%;
-      border: 2px solid white;
       display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
       z-index: 1000;
+      background: black;
     }
   </style>
 </head>
@@ -81,7 +82,7 @@
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
     const overlay = new Image();
-    overlay.src = "calque.png"; // ton overlay PNG transparent
+    overlay.src = "calque.png";
 
     const thresholdSlider = document.getElementById('threshold');
     const thresholdValueLabel = document.getElementById('thresholdValue');
@@ -92,7 +93,12 @@
       thresholdValueLabel.textContent = THRESHOLD;
     });
 
-    // Activer la caméra
+    // Canvas de capture 1080x1920 portrait
+    const captureCanvas = document.createElement('canvas');
+    const captureCtx = captureCanvas.getContext('2d');
+    captureCanvas.width = 1080;
+    captureCanvas.height = 1920;
+
     navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
       .then(stream => {
         video.srcObject = stream;
@@ -123,7 +129,7 @@
       }
       ctx.putImageData(imageData, 0, 0);
 
-      // Dessiner overlay
+      // Overlay
       if (overlay.complete) {
         ctx.drawImage(overlay, 0, 0, canvas.width, canvas.height);
       }
@@ -131,12 +137,35 @@
       requestAnimationFrame(drawFrame);
     }
 
-    // Capture
     const result = document.getElementById('result');
     document.getElementById('capture').addEventListener('click', () => {
-      result.src = canvas.toDataURL("image/png");
+      // Dessiner la capture finale 1080x1920
+      captureCtx.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
+
+      // Seuil NB
+      let imageData = captureCtx.getImageData(0, 0, captureCanvas.width, captureCanvas.height);
+      let data = imageData.data;
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i], g = data[i+1], b = data[i+2];
+        const avg = (r + g + b) / 3;
+        const val = avg > THRESHOLD ? 255 : 0;
+        data[i] = data[i+1] = data[i+2] = val;
+      }
+      captureCtx.putImageData(imageData, 0, 0);
+
+      // Overlay redimensionné
+      if (overlay.complete) {
+        captureCtx.drawImage(overlay, 0, 0, captureCanvas.width, captureCanvas.height);
+      }
+
+      // Afficher résultat
+      result.src = captureCanvas.toDataURL("image/png");
       result.style.display = "block";
-      setTimeout(() => { result.style.display = "none"; }, 3000); // masque après 3s
+    });
+
+    // Fermer l’aperçu résultat au clic
+    result.addEventListener('click', () => {
+      result.style.display = "none";
     });
   </script>
 </body>
