@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Caméra live NB + Overlay</title>
+  <style>
+    body {
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: #000;
+      color: white;
+    }
+    #container {
+      position: relative;
+      width: 100%;
+      max-width: 400px;
+    }
+    canvas, img {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+    #capture {
+      margin: 10px;
+      padding: 10px 20px;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Caméra live NB (seuil) + calque</h2>
+  <div id="container">
+    <!-- Vidéo cachée (source brute) -->
+    <video id="video" autoplay playsinline style="display:none;"></video>
+    <!-- Canvas = rendu live -->
+    <canvas id="canvas"></canvas>
+  </div>
+  <button id="capture">📸 Prendre la photo</button>
+  <img id="result" alt="Résultat" />
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const result = document.getElementById('result');
+    const ctx = canvas.getContext('2d');
+
+    // Image overlay
+    const overlay = new Image();
+    overlay.src = "calque.png";
+
+    const THRESHOLD = 128; // réglable entre 0 et 255
+
+    // Activer la caméra
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then(stream => {
+        video.srcObject = stream;
+
+        video.addEventListener('loadedmetadata', () => {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          drawFrame();
+        });
+      })
+      .catch(err => {
+        alert("Erreur caméra : " + err);
+      });
+
+    function drawFrame() {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      // Effet seuil NB
+      let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      let data = imageData.data;
+
+      for (let i = 0; i < data.length; i += 4) {
+        let r = data[i];
+        let g = data[i + 1];
+        let b = data[i + 2];
+        let avg = (r + g + b) / 3;
+
+        let val = avg > THRESHOLD ? 255 : 0;
+        data[i] = data[i + 1] = data[i + 2] = val; // R, G, B
+      }
+
+      ctx.putImageData(imageData, 0, 0);
+
+      // Dessiner overlay (après l'effet)
+      if (overlay.complete) {
+        ctx.drawImage(overlay, 0, 0, canvas.width, canvas.height);
+      }
+
+      requestAnimationFrame(drawFrame);
+    }
+
+    // Capture
+    document.getElementById('capture').addEventListener('click', () => {
+      result.src = canvas.toDataURL("image/png");
+    });
+  </script>
+</body>
+</html>
