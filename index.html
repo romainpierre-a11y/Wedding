@@ -3,59 +3,100 @@
 <head>
   <meta charset="UTF-8">
   <title>Caméra live NB + Overlay</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <style>
-    body {
+    html, body {
       margin: 0;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
       background: #000;
       color: white;
+      font-family: sans-serif;
     }
     #container {
       position: relative;
       width: 100%;
-      max-width: 400px;
+      height: 100%;
     }
-    canvas, img {
+    canvas {
       width: 100%;
-      height: auto;
+      height: 100%;
       display: block;
     }
+    #controls {
+      position: absolute;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.5);
+      padding: 10px;
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 90%;
+      max-width: 400px;
+    }
+    #thresholdLabel {
+      margin-bottom: 5px;
+    }
     #capture {
-      margin: 10px;
+      margin-top: 5px;
       padding: 10px 20px;
       font-size: 16px;
+      border: none;
+      border-radius: 5px;
+      background: #28a745;
+      color: white;
+      cursor: pointer;
+    }
+    #result {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      max-width: 90%;
+      border: 2px solid white;
+      display: none;
+      z-index: 1000;
     }
   </style>
 </head>
 <body>
-  <h2>Caméra live NB (seuil) + calque</h2>
   <div id="container">
-    <!-- Vidéo cachée (source brute) -->
-    <video id="video" autoplay playsinline style="display:none;"></video>
-    <!-- Canvas = rendu live -->
+    <video id="video" autoplay playsinline muted style="display:none;"></video>
     <canvas id="canvas"></canvas>
+    <img id="result" alt="Résultat" />
+    <div id="controls">
+      <label id="thresholdLabel">Seuil NB : <span id="thresholdValue">128</span></label>
+      <input type="range" id="threshold" min="0" max="255" value="128">
+      <button id="capture">📸 Prendre la photo</button>
+    </div>
   </div>
-  <button id="capture">📸 Prendre la photo</button>
-  <img id="result" alt="Résultat" />
 
   <script>
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
-    const result = document.getElementById('result');
     const ctx = canvas.getContext('2d');
-
-    // Image overlay
     const overlay = new Image();
-    overlay.src = "calque.png";
+    overlay.src = "calque.png"; // ton overlay PNG transparent
 
-    const THRESHOLD = 128; // réglable entre 0 et 255
+    const thresholdSlider = document.getElementById('threshold');
+    const thresholdValueLabel = document.getElementById('thresholdValue');
+    let THRESHOLD = parseInt(thresholdSlider.value);
+
+    thresholdSlider.addEventListener('input', () => {
+      THRESHOLD = parseInt(thresholdSlider.value);
+      thresholdValueLabel.textContent = THRESHOLD;
+    });
 
     // Activer la caméra
-    navigator.mediaDevices.getUserMedia({ video: true })
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
       .then(stream => {
         video.srcObject = stream;
+        video.play();
 
         video.addEventListener('loadedmetadata', () => {
           canvas.width = video.videoWidth;
@@ -64,7 +105,8 @@
         });
       })
       .catch(err => {
-        alert("Erreur caméra : " + err);
+        console.error("Erreur caméra :", err);
+        alert("Impossible d'accéder à la caméra : " + err.message);
       });
 
     function drawFrame() {
@@ -73,20 +115,15 @@
       // Effet seuil NB
       let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       let data = imageData.data;
-
       for (let i = 0; i < data.length; i += 4) {
-        let r = data[i];
-        let g = data[i + 1];
-        let b = data[i + 2];
-        let avg = (r + g + b) / 3;
-
-        let val = avg > THRESHOLD ? 255 : 0;
-        data[i] = data[i + 1] = data[i + 2] = val; // R, G, B
+        const r = data[i], g = data[i+1], b = data[i+2];
+        const avg = (r + g + b) / 3;
+        const val = avg > THRESHOLD ? 255 : 0;
+        data[i] = data[i+1] = data[i+2] = val;
       }
-
       ctx.putImageData(imageData, 0, 0);
 
-      // Dessiner overlay (après l'effet)
+      // Dessiner overlay
       if (overlay.complete) {
         ctx.drawImage(overlay, 0, 0, canvas.width, canvas.height);
       }
@@ -95,8 +132,11 @@
     }
 
     // Capture
+    const result = document.getElementById('result');
     document.getElementById('capture').addEventListener('click', () => {
       result.src = canvas.toDataURL("image/png");
+      result.style.display = "block";
+      setTimeout(() => { result.style.display = "none"; }, 3000); // masque après 3s
     });
   </script>
 </body>
