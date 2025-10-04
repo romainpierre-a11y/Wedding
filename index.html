@@ -7,21 +7,15 @@
   <style>
     html,body { height:100%; margin:0; background:#000; color:#fff; font-family:system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; }
     #container { position:relative; width:100%; height:100vh; overflow:hidden; }
-
-    /* Canvas de preview (plein écran). On le laisse pointer-events:none pour que les contrôles reçoivent les interactions. */
     #canvas {
-      position:absolute;
-      top:0; left:0;
-      width:100%;
-      height:100%;
+      position:absolute; top:0; left:0;
+      width:100%; height:100%;
       touch-action:none;
       z-index:1;
-      pointer-events: none;
+      pointer-events:none;
       background:black;
       display:block;
     }
-
-    /* Controls au dessus */
     #controls {
       position:absolute;
       left:50%;
@@ -38,7 +32,7 @@
       align-items:center;
       gap:8px;
       -webkit-tap-highlight-color: transparent;
-      pointer-events: auto;
+      pointer-events:auto;
     }
     #threshold { width:100%; }
     #capture {
@@ -52,8 +46,6 @@
       cursor:pointer;
       -webkit-user-select:none;
     }
-
-    /* Aperçu résultat (plein écran quand affiché) */
     #result {
       position:fixed;
       inset:0;
@@ -65,8 +57,6 @@
       display:none;
       touch-action:none;
     }
-
-    /* petite info en haut */
     #topInfo {
       position:absolute;
       top:10px;
@@ -84,17 +74,10 @@
 </head>
 <body>
   <div id="container">
-    <!-- video cachée : source brute -->
     <video id="video" autoplay playsinline muted style="display:none;"></video>
-
-    <!-- canvas visible (preview) -->
     <canvas id="canvas"></canvas>
-
-    <!-- aperçu full-screen du résultat -->
     <img id="result" alt="Résultat" />
-
     <div id="topInfo">Seuil : <span id="thresholdValue">128</span></div>
-
     <div id="controls" aria-hidden="false">
       <input id="threshold" type="range" min="0" max="255" value="128" />
       <button id="capture" type="button">📸 Prendre la photo (1080×1920)</button>
@@ -111,13 +94,19 @@
       const captureBtn = document.getElementById('capture');
       const result = document.getElementById('result');
 
-      // overlay (doit être servi depuis le même origin que la page)
       const overlay = new Image();
+      overlay.crossOrigin = "anonymous"; // CORS pour éviter 'tainted canvas'
       overlay.src = "calque.png";
       let overlayReady = false;
-      overlay.onload = () => { overlayReady = true; console.log("Overlay chargé"); };
+      overlay.onload = () => {
+        overlayReady = true;
+        console.log("Overlay chargé");
+      };
+      overlay.onerror = () => {
+        console.warn("Overlay non trouvé, traitement overlay désactivé.");
+        overlayReady = false;
+      };
 
-      // Canvas de capture (hidden) — 1080x1920 portrait
       const captureCanvas = document.createElement('canvas');
       const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
       captureCanvas.width = 1080;
@@ -126,177 +115,161 @@
       let playing = false;
       let videoWidth = 1280, videoHeight = 720;
 
-      // Start camera (rear by default)
+      function updateCanvasSize() {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+      }
+
       navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
         .then(stream => {
           video.srcObject = stream;
           return video.play();
         })
         .then(() => {
-          // Wait for dimensions
           video.addEventListener('loadedmetadata', () => {
-            videoWidth = video.videoWidth || video.clientWidth || 1280;
-            videoHeight = video.videoHeight || video.clientHeight || 720;
-
-            // Set internal canvas pixel size to the video size (keeps quality)
-            canvas.width = videoWidth;
-            canvas.height = videoHeight;
-
-            // Kick off preview loop
+            videoWidth = video.videoWidth;
+            videoHeight = video.videoHeight;
+            updateCanvasSize();
             playing = true;
             requestAnimationFrame(drawFrame);
           }, { once: true });
         })
         .catch(err => {
           console.error("Accès caméra impossible :", err);
-          alert("Impossible d'accéder à la caméra : " + (err && err.message ? err.message : err));
+          alert("Impossible d'accéder à la caméra : " + (err?.message || err));
         });
 
-      // Draw preview each frame. Read slider live.
       function drawFrame() {
-        if(!playing) return;
-        // draw raw video into canvas (full video resolution)
-        try {
+        if (!playing) return;
+
+        // Assure que la vidéo est prête
+        if (video.readyState >= 2) {
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        } catch(e) {
-          // video might not be ready yet
-        }
 
-        // Apply threshold using current slider value
-        const t = parseInt(threshold.value, 10) || 128;
-        thresholdValue.textContent = t;
+          const t = parseInt(threshold.value, 10) || 128;
+          thresholdValue.textContent = t;
 
-        try {
-          const img = ctx.getImageData(0,0,canvas.width,canvas.height);
-          const d = img.data;
-          for(let i=0;i<d.length;i+=4){
-            const r = d[i], g = d[i+1], b = d[i+2];
-            const avg = (r+g+b)/3;
-            const v = avg > t ? 255 : 0;
-            d[i] = d[i+1] = d[i+2] = v;
-          }
-          ctx.putImageData(img,0,0);
-        } catch(e) {
-          // getImageData can fail if canvas is tainted by cross-origin images
-          // we silently skip threshold in that case
-          // console.warn("getImageData failed (canvas may be tainted):", e);
-        }
-
-        // Draw overlay if ready (overlay must be same-origin or CORS-enabled)
-        if(overlayReady){
           try {
-            ctx.drawImage(overlay, 0, 0, canvas.width, canvas.height);
-          } catch(e){
-            // ignore
+            const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const d = img.data;
+            for(let i = 0; i < d.length; i += 4){
+              const avg = (d[i] + d[i+1] + d[i+2]) / 3;
+              const v = avg > t ? 255 : 0;
+              d[i] = d[i+1] = d[i+2] = v;
+            }
+            ctx.putImageData(img, 0, 0);
+          } catch(e) {}
+
+          // Dessin du calque uniquement si prêt
+          if (overlayReady) {
+            try {
+              ctx.drawImage(overlay, 0, 0, canvas.width, canvas.height);
+            } catch(e) {}
           }
         }
 
         requestAnimationFrame(drawFrame);
       }
 
-      // Ensure controls respond quickly on touch devices:
       function captureImage() {
-        // use the current slider value
         const t = parseInt(threshold.value, 10) || 128;
-
-        // compute crop (center-crop) from the video stream to match target ratio 1080/1920
         const videoRatio = videoWidth / videoHeight;
         const targetRatio = 1080 / 1920;
         let sx, sy, sw, sh;
 
-        if(videoRatio > targetRatio){
-          // video too wide -> crop horizontally
+        if (videoRatio > targetRatio) {
           sh = videoHeight;
           sw = sh * targetRatio;
           sx = (videoWidth - sw) / 2;
           sy = 0;
         } else {
-          // video too tall -> crop vertically
           sw = videoWidth;
           sh = sw / targetRatio;
           sx = 0;
           sy = (videoHeight - sh) / 2;
         }
 
-        // Draw the cropped video into the capture canvas (1080x1920)
         try {
-          captureCtx.clearRect(0,0,captureCanvas.width,captureCanvas.height);
+          captureCtx.clearRect(0, 0, captureCanvas.width, captureCanvas.height);
           captureCtx.drawImage(video, sx, sy, sw, sh, 0, 0, captureCanvas.width, captureCanvas.height);
         } catch(e){
           console.error("Erreur drawImage pour capture :", e);
         }
 
-        // Apply threshold on capture canvas
         try {
-          const img = captureCtx.getImageData(0,0,captureCanvas.width,captureCanvas.height);
+          const img = captureCtx.getImageData(0, 0, captureCanvas.width, captureCanvas.height);
           const d = img.data;
-          for(let i=0;i<d.length;i+=4){
-            const r = d[i], g = d[i+1], b = d[i+2];
-            const avg = (r+g+b)/3;
+          for(let i = 0; i < d.length; i += 4){
+            const avg = (d[i] + d[i+1] + d[i+2]) / 3;
             const v = avg > t ? 255 : 0;
             d[i] = d[i+1] = d[i+2] = v;
           }
-          captureCtx.putImageData(img,0,0);
+          captureCtx.putImageData(img, 0, 0);
         } catch(e) {
-          console.error("getImageData failed on capture (canvas likely tainted):", e);
-          alert("Impossible d'appliquer le filtre : vérifie que votre overlay (calque.png) est servi depuis le même domaine (même repo).");
+          console.error("getImageData failed on capture :", e);
+          alert("Impossible d'appliquer le filtre. Vérifie que calque.png est bien présent et servi localement.");
         }
 
-        // Draw overlay on capture (if ready)
-        if(overlayReady){
+        if (overlayReady) {
           try {
             captureCtx.drawImage(overlay, 0, 0, captureCanvas.width, captureCanvas.height);
-          } catch(e){
-            console.warn("Impossible de dessiner l'overlay sur la capture :", e);
+          } catch(e) {
+            console.warn("Overlay non appliqué :", e);
           }
         }
 
-        // Show preview and trigger download
+        // Flash effet (optionnel visuel)
+        flashEffect();
+
         captureCanvas.toBlob(blob => {
-          if(!blob) {
+          if (!blob) {
             alert("Erreur lors de la génération de l'image.");
             return;
           }
-          // preview
           const url = URL.createObjectURL(blob);
           result.src = url;
           result.style.display = "block";
 
-          // automatic download
-          const a = document.createElement('a');
           const now = new Date();
           const fn = `photo_${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}.png`;
+          const a = document.createElement('a');
           a.href = url;
           a.download = fn;
           document.body.appendChild(a);
           a.click();
           a.remove();
 
-          // revoke after a bit
-          setTimeout(()=> URL.revokeObjectURL(url), 60000);
+          setTimeout(() => URL.revokeObjectURL(url), 60000);
         }, 'image/png');
       }
 
-      // Hook both click and touchend for fast response on mobile
-      captureBtn.addEventListener('click', (e) => { e.preventDefault(); captureImage(); });
-      captureBtn.addEventListener('touchend', (e) => { e.preventDefault(); captureImage(); });
+      function flashEffect() {
+        const flash = document.createElement('div');
+        flash.style.position = 'fixed';
+        flash.style.inset = 0;
+        flash.style.background = 'white';
+        flash.style.opacity = 0.8;
+        flash.style.zIndex = 100;
+        document.body.appendChild(flash);
+        setTimeout(() => flash.remove(), 150);
+      }
 
-      // result click closes preview and revokes URL
+      captureBtn.addEventListener('click', e => {
+        e.preventDefault();
+        captureImage();
+      });
+
       result.addEventListener('click', () => {
-        // if src is object URL revoke it
-        try { URL.revokeObjectURL(result.src); } catch(e){}
+        try { URL.revokeObjectURL(result.src); } catch(e) {}
         result.style.display = "none";
         result.src = "";
       });
 
-      // Improve slider UX: update label on input (live)
-      threshold.addEventListener('input', () => { thresholdValue.textContent = threshold.value; });
-
-      // Optional: handle resize so displayed canvas still covers screen
-      window.addEventListener('resize', () => {
-        // Canvas internal pixel size (video dims) remains, CSS handles appearance (100% width/height)
-        // Nothing needed here unless you want to re-compute layout.
+      threshold.addEventListener('input', () => {
+        thresholdValue.textContent = threshold.value;
       });
+
+      window.addEventListener('resize', updateCanvasSize);
     })();
   </script>
 </body>
